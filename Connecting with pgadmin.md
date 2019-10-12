@@ -1,10 +1,12 @@
-# Download pgadmin
+Connecting to an RDS instance using pgAdmin
+
+# Download pgAdmin
   - https://www.pgadmin.org/download/
 ​
 # Create a free aws account
   - https://aws.amazon.com/
 ​
-# Connecting to rds
+# Connecting to RDS
 ​
 Follow the instructions in these videos:
   - https://www.youtube.com/watch?v=0GpQJM7w6M8
