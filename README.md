@@ -39,7 +39,13 @@
 ### Step 4: Python AWS Lambda
   9. Create a Lambda function using canary as the blueprint
   10. insert record into your database using handler
-  
+
+---
+
+## FAQ:
+
+### I got an internal server error when I try to connect my RDS instance with pgAdmin
 ---
 
 ## Additional Resources:
+
