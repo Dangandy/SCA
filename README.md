@@ -8,18 +8,18 @@
 ---
 
 ## Tools:
-- Amazon
+- [Amazon](https://aws.amazon.com/)
   - RDS
   - Lambda
 - postgres
 - postman
-- pgAdmin
+- [pgAdmin](https://www.pgadmin.org/download/)
 
 ---
 
 ## Tutorial
 
-### Steps 1: Create Database
+### Step 1: Create Database
   1. Create Amazon RDS postgres instance
   2. Connect RDS with pgAdmin
   3. Create a table with pgAdmin
@@ -45,7 +45,13 @@
 ## FAQ:
 
 ### I got an internal server error when I try to connect my RDS instance with pgAdmin
+  - You may need to change your security inbound rules 
+  - Allow all traffic for `0.0.0.0/0` and `::/0`
+  - [Instruction for changing inbound rules](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html#SG_Changing_Group_Membership)
 ---
 
 ## Additional Resources:
 
+### Creating and connecting to Amazon RDS with pgAdmin
+  - https://www.youtube.com/watch?v=0GpQJM7w6M8
+  - https://www.youtube.com/watch?v=vK8dbx0xhGE
