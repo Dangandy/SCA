@@ -1,3 +1,3 @@
 # Models
 
-Import your .sql scripts here
+Import your `.sql` scripts here
