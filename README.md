@@ -44,6 +44,10 @@
 
 ## FAQ:
 
+### I cannot connect to the RDS instance
+  - Check if your postgres is turned on, for macOS this command is: `brew services start postgresql`
+
+
 ### I got an internal server error when I try to connect my RDS instance with pgAdmin
   - You may need to change your security inbound rules 
   - Allow all traffic for `0.0.0.0/0` and `::/0`
