@@ -17,7 +17,7 @@
 
 ---
 
-## Tutorial
+## Tutorial Bookeo:
 
 ### Step 1: Create Database
   1. Create Amazon RDS postgres instance
