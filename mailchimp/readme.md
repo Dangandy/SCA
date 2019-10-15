@@ -36,15 +36,16 @@ client = MailChimp(mc_api='APIKEY', mc_user='USERNAME')
 ## Schema
 
 Below are the columns for the CSV:
-  Email: Email
-  Lists: [string]
-  Campaigns: [string]
-  Campaign Details: {
+  - Email: Email
+  - Lists: [string]
+  - Campaigns: [string]
+  - Campaign Details: {
     opens: int,
     clicks: int,
     last open: date,
     last click: date
   }
+  
 ---
 
 ## Additional Resources:
