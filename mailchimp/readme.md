@@ -15,3 +15,6 @@ Please look in our group chat for the credentials
 
 Lists = groups of users
   (Murdoch Fans)
+
+## Additional Resources:
+[Python Mailchimp Library (v3)](https://github.com/VingtCinq/python-mailchimp)
