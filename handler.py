@@ -72,6 +72,7 @@ def get_one_month_bookings(year, month):
     next_page_url = f'https://api.bookeo.com/v2/bookings?secretKey={secretKey}&apiKey={apiKey}&pageNavigationToken={pageNavigationToken}&pageNumber={currentPage + 1}&itemsPerPage=100'
     currentPage, _, _, _df = get_request(next_page_url)
     df = df.append(_df, ignore_index=True, sort=False)
+    print(f'Page {currentPage}/{totalPages}')
 
   # ERROR
   if totalPages == -1:
@@ -109,7 +110,30 @@ def get_one_year_bookings(year):
 
   return df
   
+def get_customers():
+  """
+    int, int -> df
+    Get customer information from Bookeo
+  """
+
+
+  # call GET
+  url = f'https://api.bookeo.com/v2/customers?secretKey={secretKey}&apiKey={apiKey}&itemsPerPage=100'
+  currentPage, totalPages, pageNavigationToken, df = get_request(url)
+  print(f'Page {currentPage}/{totalPages}')
   
+  while currentPage < totalPages:
+    next_page_url = f'https://api.bookeo.com/v2/bookings?secretKey={secretKey}&apiKey={apiKey}&pageNavigationToken={pageNavigationToken}&pageNumber={currentPage + 1}&itemsPerPage=100'
+    currentPage, _, _, _df = get_request(next_page_url)
+    df = df.append(_df, ignore_index=True, sort=False)
+    print(f'Page {currentPage}/{totalPages}')
+
+  # ERROR
+  if totalPages == -1:
+    print(f"Progress: Finished")
+     
+  return pd.DataFrame(df)
+ 
 # creds
 secretKey = ''
 apiKey = ''
@@ -126,3 +150,10 @@ black_creek = black_creek.append(year_2017, ignore_index=True, sort=False)
 # save to csv
 path = '/content/drive/My Drive/'
 black_creek.to_csv(path+"black creek.csv", index=False)
+
+# get customer data
+customer = get_customers()
+
+# save to csv
+path = '/content/drive/My Drive/'
+customer.to_csv(path+"black creek customer.csv", index=False)
