@@ -25,5 +25,27 @@ client = MailChimp(mc_api='APIKEY', mc_user='USERNAME')
 
 ---
 
+## Analysis
+
+- 17 lists
+- 136 campaigns
+- All queries result in a dict with the following structure `{query_item, total_item, links}`
+
+---
+
+## Schema
+
+Below are the columns for the CSV:
+  Email: Email
+  Lists: [string]
+  Campaigns: [string]
+  Campaign Details: {
+    opens: int,
+    clicks: int,
+    last open: date,
+    last click: date
+  }
+---
+
 ## Additional Resources:
 [Python Mailchimp Library (v3)](https://github.com/VingtCinq/python-mailchimp)
