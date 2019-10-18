@@ -9,20 +9,18 @@ class Bookeo_ETL():
     """Instantiate the class and create internal attributes"""
     
     # Credentials
-    self.secretKey = 'insert secret key here'
-    self.apikeys = {
-      'casa_loma': 'insert api key here',
-      'black_creek': 'insert api key here'}
+    self.secretKey = secret key
+    self.apikeys = {'casa_loma': api key, 'black_creek': api key}
     self.apiKey = self.apikeys[location]
     self.location = location
     
     #Let's find the last date
     #default start time
-    self.lastUpdatedStartTime = datetime.datetime(2015, 1, 1)
+    self.lastUpdatedStartTime = datetime.datetime(2017, 1, 1)
     
     #Query for last date
     #Connect to database
-    engine = db.create_engine('insert database here')
+    engine = db.create_engine(database)
     connection = engine.connect()
     metadata = db.MetaData()
     try:
@@ -37,9 +35,9 @@ class Bookeo_ETL():
       time = time.rsplit('-',1)[0]
       self.lastUpdatedStartTime = dt.strptime(time, '%Y-%m-%dT%H:%M:%S')
       
-    print(f'Start time: {self.lastUpdatedStartTime}')
+    print(f'Last updated time: {self.lastUpdatedStartTime}')
     
-    self.current_bookings = self.extract_data(self.lastUpdatedStartTime)
+    self.current_bookings = self.extract_data(self.lastUpdatedStartTime, False)
     self.customer_df, self.booking_df = self.transform_data()
   
   
@@ -49,7 +47,7 @@ class Bookeo_ETL():
   
   
   
-  def extract_data(self, lastUpdatedStartTime):
+  def extract_data(self, lastUpdatedStartTime, lastUpdatedEndTime = datetime.datetime.now() , fromStartOfMonth=False):
     """This method handles and instantiates the connection to the API in order to send 
     and receive requests. After the connection is created, it applies a predefined
     API request and extracts a json file with the data sent back from the API
@@ -62,20 +60,21 @@ class Bookeo_ETL():
         2. call get one month booking
         3. return df
     """
-      
-    # Set endtime to now
-    lastUpdatedEndTime = datetime.datetime.now()
     
-    # variables
+    print('Extracting')
     
-    #current_month = lastUpdatedStartTime.month
-    #current_year = lastUpdatedStartTime.year
-    #current_datetime = datetime.datetime(current_year, current_month, 1)
-    
-    current_datetime = lastUpdatedStartTime
+    if(fromStartOfMonth==True):
+      # variables
+      current_month = lastUpdatedStartTime.month
+      current_year = lastUpdatedStartTime.year
+      current_datetime = datetime.datetime(current_year, current_month, 1)
+    else:
+      current_datetime = lastUpdatedStartTime
     
     json_data = []
-
+    
+    print(f'Preparing to load data from {current_datetime} to {lastUpdatedEndTime}')
+    
     # loop through all months
     while current_datetime <= lastUpdatedEndTime:
         
@@ -101,13 +100,13 @@ class Bookeo_ETL():
     lastUpdatedStartTime = lastUpdatedStartTime.strftime("%Y-%m-%dT%H:%M:%S-04:00")
     lastUpdatedEndTime = lastUpdatedEndTime.strftime("%Y-%m-%dT%H:%M:%S-04:00")
     
-    print(lastUpdatedStartTime)
-    print(lastUpdatedEndTime)
+    print(f'Loading data from {lastUpdatedStartTime} to {lastUpdatedEndTime}')
     
     # call GET request
     url = f'https://api.bookeo.com/v2/bookings?secretKey={self.secretKey}&apiKey={self.apiKey}&lastUpdatedStartTime={lastUpdatedStartTime}&lastUpdatedEndTime={lastUpdatedEndTime}&itemsPerPage=100&expandParticipants=true&expandCustomer=true&includeCanceled=true'
     currentPage, totalPages, pageNavigationToken, json_data = self.__get_request(url)
-
+    #print(url)
+    
     while currentPage < totalPages:
         next_page_url = f'https://api.bookeo.com/v2/bookings?secretKey={self.secretKey}&apiKey={self.apiKey}&pageNavigationToken={pageNavigationToken}&pageNumber={currentPage + 1}&itemsPerPage=100'
         currentPage, _, _, _json_data = self.__get_request(next_page_url)
@@ -128,33 +127,11 @@ class Bookeo_ETL():
     3. Other transformations
     4. Split df into customer_df and booking_df
     """
-
-    # Flatten json object
-    df = pd.DataFrame(self.current_bookings)
-    df = flat_table.normalize(df)
-
-    # Assign location 
-    df['location'] = self.location
-
-    # Grab all unique id 
-    customer_id = (df['customerId'].unique()).tolist()
+    print('Transforming')
     
-    # Internal id dictionary
-    # TODO: We might need to export this?
-    IID = {}
-    k   = 1
-    for identity in customer_id:
-      IID[identity] = k
-      k = k + 1
-    
-    # Map IID to each booking data
-    df['IID'] = df['customerId'].apply(lambda x: IID[x])
-
-
-    # OTHER TRANSFORMATIONS
     # Set customer columns
     customer_col = [
-                'IID',
+                #'IID',
                 'customer.streetAddress.countryCode',
                 'customer.startTimeOfPreviousBooking',
                 'customer.startTimeOfNextBooking',
@@ -179,7 +156,7 @@ class Bookeo_ETL():
     # Set bookings column 
     # Note: One set of taxes column were drop since it was redundant
     booking_col = [
-                'IID',
+                #'IID',
                 'accepted',
                 'customer.emailAddress',
                 'bookingNumber',
@@ -215,6 +192,36 @@ class Bookeo_ETL():
                 'price.totalGross.amount',
                 'corporateBooking'
                 ]
+    
+    # Flatten json object
+    df = pd.DataFrame(self.current_bookings)
+    if(df.size == 0):
+      bookings_df = pd.DataFrame(columns = booking_col)
+      customer_df = pd.DataFrame(columns = booking_col)
+      return customer_df, bookings_df
+    
+    df = flat_table.normalize(df)
+
+    # Assign location 
+    df['location'] = self.location
+
+    # Grab all unique id 
+    #customer_id = (df['customerId'].unique()).tolist()
+    
+    # Internal id dictionary
+    # TODO: We might need to export this?
+    #IID = {}
+    #k   = 1
+    #for identity in customer_id:
+    #  IID[identity] = k
+    #  k = k + 1
+    
+    # Map IID to each booking data
+    # df['IID'] = df['customerId'].apply(lambda x: IID[x])
+
+
+    # OTHER TRANSFORMATIONS
+    
     #if a column is not in the df, assign a null column to it
     for col in booking_col:
       if(col not in df.columns):
@@ -224,7 +231,7 @@ class Bookeo_ETL():
         df[col]= np.nan   
     
     # Cleaning
-    #print('Starting cleaning')
+    print('Starting cleaning')
     #print(df.info())
     #seperate extensions and move them to their own column
     df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.number']     
@@ -256,7 +263,7 @@ class Bookeo_ETL():
     bookings_df = df[booking_col]
 
     # Eliminate duplicates in customer_df based on IID
-    customer_df = (customer_df.drop_duplicates(subset='IID')).reset_index(drop = True)
+    customer_df = (customer_df.drop_duplicates(subset='customer.id')).reset_index(drop = True)
     customer_df = (customer_df.drop_duplicates(subset='customer.emailAddress')).reset_index(drop = True)
     bookings_df = (bookings_df.drop_duplicates(subset='bookingNumber')).reset_index(drop = True)
 
@@ -274,14 +281,41 @@ class Bookeo_ETL():
     the methods of a dataframe to send an upsert command with a data dump into
     the SQL database"""
     
-    #Connect to database
-    engine = db.create_engine('insert database here')
-
+    print('Loading')
     
-    self.customer_df.to_sql('customer', engine, index_label='customer_emailAddress',
-                         if_exists='append', index=False)
-    self.booking_df.to_sql('booking', engine, index_label='bookingNumber',
-                         if_exists='append', index=False)
+    #Connect to database
+    engine = db.create_engine(database)
+    
+    error_count = 0
+    load_count = 0
+    for i in range(len(self.customer_df)):
+      try:
+        self.customer_df.iloc[i:i+1].to_sql('customer', engine, index_label='customer_emailAddress', if_exists='append', index=False)
+      except:
+        error_count+=1
+        pass 
+      else:
+        load_count+=1
+    print(f'Encountered {error_count} errors')
+    print(f'Loaded {load_count} / {self.customer_df.shape[0]} customer enteries')
+    
+    error_count = 0
+    load_count = 0
+    for i in range(len(self.booking_df)):
+      try:
+          self.booking_df.iloc[i:i+1].to_sql('booking', engine, index_label='bookingNumber', if_exists='append', index=False)
+      except:
+        error_count+=1
+        pass 
+      else:
+        load_count+=1
+    print(f'Encountered {error_count} errors')
+    print(f'Loaded {load_count} / {self.booking_df.shape[0]} booking enteries')
+    
+#    self.customer_df.to_sql('customer', engine, index_label='customer_emailAddress',
+#                         if_exists='append', index=False)
+#    self.booking_df.to_sql('booking', engine, index_label='bookingNumber',
+#                         if_exists='append', index=False)
 
     
     
@@ -326,7 +360,11 @@ class Bookeo_ETL():
         print(f'Content: {response.content}')
         return(9999, -1, "", None)
 
+      
+      
 
+  
+  
   
   # HELPER FUNCTIONS 
   #remove non numerical values
@@ -427,4 +465,6 @@ class Bookeo_ETL():
     if(booking['privateEvent']==True):
       score+=1
     return score>=3
+  
+
   
