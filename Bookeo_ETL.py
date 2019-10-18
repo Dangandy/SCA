@@ -1,3 +1,20 @@
+#Imports for Bookeo_ETL
+import requests
+import json
+import datetime
+from datetime import datetime as dt
+import time
+import pandas as pd
+from pandas.io.json import json_normalize
+from dateutil.relativedelta import relativedelta
+import re
+import numpy as np
+
+import sqlalchemy as db
+
+!pip install flat_table
+import flat_table
+
 #Create the class for Bookeo scrapper
 
 class Bookeo_ETL():
