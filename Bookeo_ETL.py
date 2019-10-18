@@ -18,7 +18,7 @@ class Bookeo_ETL():
     
     #Let's find the last date
     #default start time
-    self.lastUpdatedStartTime = datetime.datetime(2019, 10, 1)
+    self.lastUpdatedStartTime = datetime.datetime(2015, 1, 1)
     
     #Query for last date
     #Connect to database
