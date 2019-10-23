@@ -22,129 +22,179 @@ class Bookeo_ETL():
   retrieves the data in a json format to then transform it into a pandas dataframe
   and load it into a SQL database"""
   
-  def __init__(self, location='casa_loma'):
+  def __init__(self, location):
     """Instantiate the class and create internal attributes"""
     
     # Credentials
-    self.secretKey = secret key
-    self.apikeys = {'casa_loma': api key, 'black_creek': api key}
+    #MAKE SURE TO REMOVE THESE WHEN UPLOADING TO A PUBLIC SITE
+    self.secretKey = 'nRhykUJ5mIQQLSyMOfswBYMvfPetLL3v'
+    self.apikeys = {'casa_loma': 'AAWNLWW6WEMLRTNTUCJ3T41551RCE94P14F1F8479C2', 'black_creek': 'ARJKX9MATEMLRTNTUCJ3T3152XELJPJ1456D150190'}
     self.apiKey = self.apikeys[location]
     self.location = location
     
-    #Let's find the last date
-    #default start time
-    self.lastUpdatedStartTime = datetime.datetime(2017, 1, 1)
+    self.db_url = 'postgresql://postgres:psql1234@sca-db.cvz6xur1mv50.us-east-2.rds.amazonaws.com:5432/sca_data'
+    self.engine = db.create_engine(self.db_url)
     
-    #Query for last date
-    #Connect to database
-    engine = db.create_engine(database)
-    connection = engine.connect()
-    metadata = db.MetaData()
-    try:
-      booking_table = db.Table('booking', metadata, autoload=True, autoload_with=engine)
-      query = db.select([booking_table.columns.creationTime]).order_by(db.desc(booking_table.columns.creationTime))
-    except:
-      print('Table not found')
-    else:
-      ResultProxy = connection.execute(query)
-      ResultSet = ResultProxy.fetchone()
-      time = ResultSet.values()[0]
-      time = time.rsplit('-',1)[0]
-      self.lastUpdatedStartTime = dt.strptime(time, '%Y-%m-%dT%H:%M:%S')
-      
-    print(f'Last updated time: {self.lastUpdatedStartTime}')
-    
-    self.current_bookings = self.extract_data(self.lastUpdatedStartTime, False)
-    self.customer_df, self.booking_df = self.transform_data()
-  
-  
-  
+
   def __str__(self):
-    return 'This is a template for the Bookeo ETL class'
+    return f'This is a template for the Bookeo ETL class for {self.location}'
+
   
   
-  
-  def extract_data(self, lastUpdatedStartTime, lastUpdatedEndTime = datetime.datetime.now() , fromStartOfMonth=False):
+#__________________________________________________EXTRACTING__________________________________________________  
+  def extract_data(self, startTime = None, endTime = datetime.datetime.now(), fromStartOfMonth=True):
     """This method handles and instantiates the connection to the API in order to send 
     and receive requests. After the connection is created, it applies a predefined
     API request and extracts a json file with the data sent back from the API
     
-    int -> json
-    start from january, and keep calling `get_request()` until it is either december or current month
+    `startTime` is the date to start at. If not specified, it queries the database
+    for the last updated time. If the start time cannot be obtained from the db,
+    it defaults to Jan 01 2017
+    
+    `endTime` is the date end the extraction. By default it is the current date.
+    
+    `fromStartOfMonth` determines whether extraction starts on the exact date of 
+    `startTime` the 1st of the month of `startTime` 
 
     Pseudocode:
-        1. get all months for year
-        2. call get one month booking
-        3. return df
+        1. Determine the date to start extraction
+        2. Extract data one month at a time
+        3. Add data to the list
     """
     
-    print('Extracting')
-    
+    #If the start time is not specified, query the database for the last updated time
+    if(startTime == None):
+      connection = self.engine.connect()
+      metadata = db.MetaData()
+      try:
+        booking_table = db.Table('booking', metadata, autoload=True, autoload_with=self.engine)
+        query = db.select([booking_table.columns.creationTime]).order_by(db.desc(booking_table.columns.creationTime))
+        
+      #If a last updated time cannot be found, likely due to the table not existing, extract all data starting Jan 01 2017
+      except:
+        startTime = datetime.datetime(2017, 1, 1)
+        print(f'Table not found, extracting all data starting: {startTime}')
+      else:
+        ResultProxy = connection.execute(query)
+        ResultSet = ResultProxy.fetchone()
+        time = ResultSet.values()[0]
+        print(f'Last updated: {time}')
+        time = time.rsplit('-',1)[0]
+        startTime = dt.strptime(time, '%Y-%m-%dT%H:%M:%S')
+             
+    #Set the starting time to the start of the month
     if(fromStartOfMonth==True):
       # variables
-      current_month = lastUpdatedStartTime.month
-      current_year = lastUpdatedStartTime.year
-      current_datetime = datetime.datetime(current_year, current_month, 1)
-    else:
-      current_datetime = lastUpdatedStartTime
-    
-    json_data = []
-    
-    print(f'Preparing to load data from {current_datetime} to {lastUpdatedEndTime}')
-    
-    # loop through all months
-    while current_datetime <= lastUpdatedEndTime:
-        
-        _json_data = self.__get_one_month_bookings(current_datetime)
-        json_data += _json_data
-        current_datetime = current_datetime + relativedelta(months=1)
-        
-    return json_data
+      current_month = startTime.month
+      current_year = startTime.year
+      startTime = datetime.datetime(current_year, current_month, 1)
 
+    print(f'Preparing to extract data from {startTime} to {endTime}')
+
+    print('Extracting')    
+    json_data = []
+    # loop through all months
+    currentTime = startTime
+    while currentTime <= endTime:
+        
+        _json_data = self.__get_one_month_bookings(currentTime, endTime)
+        json_data += _json_data
+        currentTime = currentTime + relativedelta(months=1)
+        
+    
+    print(f'Extracted {len(json_data)} rows')
+    return  json_data
+    
   
-  
-  def __get_one_month_bookings(self, lastUpdatedStartTime):
+  def __get_one_month_bookings(self, startTime, endTime):
     """
         int, int -> json
-        Get One month of booking information from Bookeo
+        Get One month or until endTime of booking information from Bookeo
         Note: Bookeo only allows fetches of 31 days
     """
 
     # get start and end time
-    lastUpdatedEndTime = lastUpdatedStartTime + relativedelta(months=1, days=-1)
+    endTimeMonth = startTime + relativedelta(months=1, days=-1)
+    
+    if(endTimeMonth> endTime):
+      endTimeMonth = endTime
     
     #Format accordingly
-    lastUpdatedStartTime = lastUpdatedStartTime.strftime("%Y-%m-%dT%H:%M:%S-04:00")
-    lastUpdatedEndTime = lastUpdatedEndTime.strftime("%Y-%m-%dT%H:%M:%S-04:00")
+    startTime = startTime.strftime("%Y-%m-%dT%H:%M:%S-04:00")
+    endTimeMonth = endTimeMonth.strftime("%Y-%m-%dT%H:%M:%S-04:00")
     
-    print(f'Loading data from {lastUpdatedStartTime} to {lastUpdatedEndTime}')
+    print(f'Extracting data from {startTime} to {endTimeMonth}')
     
     # call GET request
-    url = f'https://api.bookeo.com/v2/bookings?secretKey={self.secretKey}&apiKey={self.apiKey}&lastUpdatedStartTime={lastUpdatedStartTime}&lastUpdatedEndTime={lastUpdatedEndTime}&itemsPerPage=100&expandParticipants=true&expandCustomer=true&includeCanceled=true'
+    url = f'https://api.bookeo.com/v2/bookings?secretKey={self.secretKey}&apiKey={self.apiKey}&lastUpdatedStartTime={startTime}&lastUpdatedEndTime={endTimeMonth}&itemsPerPage=100&expandParticipants=true&expandCustomer=true&includeCanceled=true'
     currentPage, totalPages, pageNavigationToken, json_data = self.__get_request(url)
-    #print(url)
     
+    #grab new pages as long as there are pages left
     while currentPage < totalPages:
         next_page_url = f'https://api.bookeo.com/v2/bookings?secretKey={self.secretKey}&apiKey={self.apiKey}&pageNavigationToken={pageNavigationToken}&pageNumber={currentPage + 1}&itemsPerPage=100'
         currentPage, _, _, _json_data = self.__get_request(next_page_url)
         json_data += _json_data
+    return json_data  
 
-    return json_data
 
-  
-  def transform_data(self):
+    
+  def __get_request(self, url):
+    """
+    Private method to be used within the extract_data method in order to get 
+    send the GET request.
+      
+    str -> (int, int, str, json)
+    Given an url, call the http GET request and return a tuple (currentPage, totalPages, pageNavigationToken, df)
+
+    Note: you only get a pageNavigationToken if the total count of item is greater than 50 (default pagination)
+    """
+
+    # call GET
+    response = requests.get(url)
+    json_response = response.json()
+
+    # SUCCESS
+    if response.status_code == 200:
+        # parse GET
+        json_response_data = json_response['data']
+        json_response_info  = json_response['info']
+        pageNavigationToken = json_response_info['pageNavigationToken'] if 'pageNavigationToken' in json_response_info else ""
+        currentPage = json_response_info['currentPage']
+        totalPages = json_response_info['totalPages']
+
+        # build DF and return
+        return (currentPage, totalPages, pageNavigationToken, json_response_data)
+
+    # Failed Retry
+    elif response.status_code == 429:
+        print("Retrying....")
+        json_response_retryAfter = json_response['retryAfter']
+        time.sleep(json_response_retryAfter)
+        return self.__get_request(url)
+
+    # FAIL
+    else:
+        print("ERROR!")
+        print(f'Status Code: {response.status_code}')
+        print(f'Content: {response.content}')
+        return(9999, -1, "", None)
+      
+      
+      
+
+      
+#_________________________TRANSFORMING__________________________________________________  
+  def transform_data(self, current_bookings):
     """Transforms the loaded json dump into a dataframe with all the information ready to
     be sent into the SQL database
-    
-    Outputs: customer_df, booking_df
 
     Pseudocode:
     1. Put current_bookings into dataframe (df) and flatten json entries
-    2. Assign Internal id based on SCA customer id
-    3. Other transformations
+    2. Assign Internal id based on SCA customer id (no longer in use)
+    3. Cleaning transformations
     4. Split df into customer_df and booking_df
     """
-    print('Transforming')
+    print('Transforming data')
     
     # Set customer columns
     customer_col = [
@@ -208,37 +258,39 @@ class Bookeo_ETL():
                 'price.totalGross.currency',
                 'price.totalGross.amount',
                 'corporateBooking'
-                ]
+                ]  
+    
     
     # Flatten json object
-    df = pd.DataFrame(self.current_bookings)
+    df = pd.DataFrame(current_bookings)
+    
+    #if the df is empty
     if(df.size == 0):
       bookings_df = pd.DataFrame(columns = booking_col)
       customer_df = pd.DataFrame(columns = booking_col)
-      return customer_df, bookings_df
+      self.customer_df = customer_df
+      self.bookings_df = bookings_df
+      return
     
     df = flat_table.normalize(df)
 
     # Assign location 
     df['location'] = self.location
 
-    # Grab all unique id 
+    # Grab all unique id, no longer in use 
     #customer_id = (df['customerId'].unique()).tolist()
-    
     # Internal id dictionary
     # TODO: We might need to export this?
     #IID = {}
     #k   = 1
     #for identity in customer_id:
     #  IID[identity] = k
-    #  k = k + 1
-    
+    #  k = k + 1    
     # Map IID to each booking data
     # df['IID'] = df['customerId'].apply(lambda x: IID[x])
 
 
-    # OTHER TRANSFORMATIONS
-    
+    # Cleaning
     #if a column is not in the df, assign a null column to it
     for col in booking_col:
       if(col not in df.columns):
@@ -247,18 +299,38 @@ class Bookeo_ETL():
       if(col not in df.columns):
         df[col]= np.nan   
     
-    # Cleaning
-    print('Starting cleaning')
-    #print(df.info())
+    print('Cleaning')
+    
+    #change number formats to numbers
+    num_col = [
+        'customer.numNoShows','customer.numCancelations','customer.numBookings'     
+    ]
+    
+    price_col = ['price.totalTaxes.amount','price.totalPaid.amount','price.totalNet.amount','price.totalGross.amount']
+    
+    date_col = [
+       'customer.startTimeOfPreviousBooking','customer.startTimeOfNextBooking','customer.creationTime',       
+        'cancelationTime','creationTime','endTime','lastChangeTime','startTime'
+    ]
+    df[date_col] = df[date_col].apply(self.__to_datetime)
+    df[num_col] = df[num_col].astype(int)
+    df[price_col] = df[price_col].astype(float)
+    
+    
+    
+    print('Seperating phone extensions')
     #seperate extensions and move them to their own column
     df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.number']     
-    df['customer.phoneNumbers.number'] = df['customer.phoneNumbers.number'].apply(self.number)
-    df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.ext'].apply(self.ext)
+    df['customer.phoneNumbers.number'] = df['customer.phoneNumbers.number'].apply(self.__number)
+    df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.ext'].apply(self.__ext)
     
     # remove non numerical characters
-    df['customer.phoneNumbers.number'] = df['customer.phoneNumbers.number'].apply(self.remove_char)
-    df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.ext'].apply(self.remove_char)
+    df['customer.phoneNumbers.number'] = df['customer.phoneNumbers.number'].apply(self.__remove_char)
+    df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.ext'].apply(self.__remove_char)
     
+    
+    
+    print('Cleaning product names')
     # Remove the trailing whitespace from game names
     df['productName'] = df['productName'].str.rstrip()
     
@@ -266,13 +338,14 @@ class Bookeo_ETL():
     private_bookings = df[df['productName'].str.contains('Private')]
     df.loc[private_bookings.index, 'privateEvent']= True
     
+    
     #add the corporate booking column
     corporate_list = []
     for index, row in df.iterrows():
-      corporate_list.append(self.is_corp(row))                                         
+      corporate_list.append(self.__is_corp(row))                                         
     df['corporateBooking'] = corporate_list
     
-
+    df['productName'] = df['productName'].apply(self.__clean_game_name)  
     
     
     # Split data into customer and bookings
@@ -283,109 +356,29 @@ class Bookeo_ETL():
     customer_df = (customer_df.drop_duplicates(subset='customer.id')).reset_index(drop = True)
     customer_df = (customer_df.drop_duplicates(subset='customer.emailAddress')).reset_index(drop = True)
     bookings_df = (bookings_df.drop_duplicates(subset='bookingNumber')).reset_index(drop = True)
-
+    
+    customer_df = customer_df.sort_values('customer.creationTime')
+    bookings_df = bookings_df.sort_values('creationTime')
+    
     #Format column names
     customer_df.columns = customer_df.columns.str.replace('.', '_')
     bookings_df.columns = bookings_df.columns.str.replace('.', '_')
-
-    return customer_df, bookings_df
-    #return bookings_df
-  
-  
-  
-  def load_data(self):
-    """This method first sets up the connection to the database and harnesses 
-    the methods of a dataframe to send an upsert command with a data dump into
-    the SQL database"""
     
-    print('Loading')
-    
-    #Connect to database
-    engine = db.create_engine(database)
-    
-    error_count = 0
-    load_count = 0
-    for i in range(len(self.customer_df)):
-      try:
-        self.customer_df.iloc[i:i+1].to_sql('customer', engine, index_label='customer_emailAddress', if_exists='append', index=False)
-      except:
-        error_count+=1
-        pass 
-      else:
-        load_count+=1
-    print(f'Encountered {error_count} errors')
-    print(f'Loaded {load_count} / {self.customer_df.shape[0]} customer enteries')
-    
-    error_count = 0
-    load_count = 0
-    for i in range(len(self.booking_df)):
-      try:
-          self.booking_df.iloc[i:i+1].to_sql('booking', engine, index_label='bookingNumber', if_exists='append', index=False)
-      except:
-        error_count+=1
-        pass 
-      else:
-        load_count+=1
-    print(f'Encountered {error_count} errors')
-    print(f'Loaded {load_count} / {self.booking_df.shape[0]} booking enteries')
-    
-#    self.customer_df.to_sql('customer', engine, index_label='customer_emailAddress',
-#                         if_exists='append', index=False)
-#    self.booking_df.to_sql('booking', engine, index_label='bookingNumber',
-#                         if_exists='append', index=False)
-
+    print('Finished transforming')
+    return {'customer':customer_df, 'booking':bookings_df}
     
     
-  def __get_request(self, url):
-    """
-    Private method to be used within the extract_data method in order to get 
-    send the GET request.
-      
-    str -> (int, int, str, json)
-    Given an url, call the http GET request and return a tuple (currentPage, totalPages, pageNavigationToken, df)
 
-    Note: you only get a pageNavigationToken if the total count of item is greater than 50 (default pagination)
-    """
-
-    # call GET
-    response = requests.get(url)
-    json_response = response.json()
-
-    # SUCCESS
-    if response.status_code == 200:
-        # parse GET
-        json_response_data = json_response['data']
-        json_response_info  = json_response['info']
-        pageNavigationToken = json_response_info['pageNavigationToken'] if 'pageNavigationToken' in json_response_info else ""
-        currentPage = json_response_info['currentPage']
-        totalPages = json_response_info['totalPages']
-
-        # build DF and return
-        return (currentPage, totalPages, pageNavigationToken, json_response_data)
-
-    # Failed Retry
-    elif response.status_code == 429:
-        print("Retrying....")
-        json_response_retryAfter = json_response['retryAfter']
-        time.sleep(json_response_retryAfter)
-        return self.__get_request(url)
-
-    # FAIL
-    else:
-        print("ERROR!")
-        print(f'Status Code: {response.status_code}')
-        print(f'Content: {response.content}')
-        return(9999, -1, "", None)
-
-      
-      
-
-  
-  
-  
   # HELPER FUNCTIONS 
+  #convert to datetime
+  def __to_datetime(self, date):
+    date = pd.to_datetime(date, utc = True)
+    date = date.dt.tz_convert('US/Eastern')
+    date = date.dt.tz_localize(None)
+    return date
+  
   #remove non numerical values
-  def remove_char(self, num):
+  def __remove_char(self, num):
     if(pd.isna(num)):
       return np.nan
     #removes non numerical values from the phone number
@@ -395,30 +388,30 @@ class Bookeo_ETL():
     return num
   
   #get the phone number portion from the column
-  def number(self, num):
+  def __number(self, num):
     if(pd.isna(num)):
-      return np.nan
+      return None
     numbers = re.split('x',num, flags  = re.IGNORECASE)
     if(len(numbers) == 1):
       numbers.append(np.nan)
-    return numbers[0]
+    return str(numbers[0])
   
   #get the extension portion from the column
-  def ext(self, num):
+  def __ext(self, num):
     if(pd.isna(num)):
-      return  np.nan
+      return  None
     numbers = re.split('x',num, flags  = re.IGNORECASE)
     if(len(numbers) == 1):
       numbers.append(np.nan)
-    return numbers[1]  
+    return str(numbers[1])  
   
   #check if a email is corporate 
-  def is_corp_email(self, email):
+  def __is_corp_email(self, email):
     '''
     Check if an email is corporate by checking if it is in a given list of providers
-    '''
+    '''   
     #list of public emails
-    emailList = [
+    self.emailList = [
       'gmail.com', 'yahoo.com', 'hotmail.com', 'aol.com', 'hotmail.co.uk',
       'hotmail.fr', 'msn.com', 'yahoo.fr', 'wanadoo.fr', 'orange.fr',
       'comcast.net', 'yahoo.co.uk', 'yahoo.com.br', 'yahoo.co.in', 'live.com',
@@ -440,29 +433,19 @@ class Bookeo_ETL():
       'skynet.be', 'sympatico.ca', 'windstream.net', 'mac.com', 'centurytel.net',
       'chello.nl', 'live.ca', 'aim.com', 'bigpond.net', 'cogeco.net',
       'cogeco.ca', 'bell.ca', 'bell.com', 'bell.net', 'bell.ca', 'rogers.com'
-    ]                                     
+    ]  
+    
     if(pd.isna(email)==True):
       return False
     provider = email.split('@')[1]
-    if(provider in (emailList)):
+    if(provider in (self.emailList)):
       return False
-    return True
-                
-    
-    
+    return True    
+
   #check if a booking is corporate
-  def is_corp(self, booking):
-    '''See if a booking is corporate'''
-    score = 0
-    #1) possess corporate email 
-    if(self.is_corp_email(booking['customer.emailAddress'])):
-      score+=1
-    #2) possess corporate phone number (ext)
-    if(pd.isna(booking['customer.phoneNumbers.ext']) == False):
-      score+=1
-    #3) full booking
-    #max capacity for each game
-    capacities = {
+  def __is_corp(self, booking):
+    #max capacities for each game
+    self.capacities = {
         'King of the Bootleggers':16, 'Bootleggers Private':16,
         'Escape from the Tower':12, 'Tower Private Game':12, 
         'Station M':12, 'Station M Private Game':12,
@@ -475,13 +458,102 @@ class Bookeo_ETL():
         'The Secret of Station House No. 4':12, 'The Secret of Station House No 4(Private Booking)':12,
         "The Dragon's Song":12, "The Dragon's Song Private":12, "The Dragon's Song Family Game":12   
     }
-    if(booking['participants.numbers.number'] in capacities):
-      if(booking['participants.numbers.number'] >= capacities[booking['productName']]):
+    
+    '''See if a booking is corporate'''
+    score = 0
+    #1) possess corporate email 
+    if(self.__is_corp_email(booking['customer.emailAddress'])):
+      score+=1
+    #2) possess corporate phone number (ext)
+    if(pd.isna(booking['customer.phoneNumbers.ext']) == False):
+      score+=1
+    #3) full booking
+    #max capacity for each game
+    if(booking['participants.numbers.number'] in self.capacities):
+      if(booking['participants.numbers.number'] >= self.capacities[booking['productName']]):
         score+=1
     #4) private event
     if(booking['privateEvent']==True):
       score+=1
     return score>=3
   
+  def __clean_game_name(self, productName):
+    self.game_names = {  
+      'King of the Bootleggers':'King of the Bootleggers', 
+      'King Of The Bootleggers':'King of the Bootleggers', 
+      'Bootleggers Private':'King of the Bootleggers',
 
+      'Escape from the Tower':'Escape from the Tower', 
+      'Tower Private Game':'Escape from the Tower', 
+
+      'Station M':'Station M', 
+      'Station M Private Game':'Station M',
+
+      'Where Dark Things Dwell':'Where Dark Things Dwell',
+
+      'Murdoch Mysteries Escape Game':'Murdoch Mysteries Escape Game', 
+      'Murdoch Mysteries Private Game':'Murdoch Mysteries Escape Game',
+
+      'Escape from the Time Travel Lab':'Escape from the Time Travel Lab', 
+      'TTL (Private Booking)':'Escape from the Time Travel Lab', 
+
+      'The Trial of the Mad Fox Society':'The Trial of the Mad Fox Society', 
+      'MadFox (Private Booking)':'The Trial of the Mad Fox Society',
+
+
+      'Black Creek (Private 30 people)':'Black Creek Private', 
+      'Black Creek (Private 60 People)':'Black Creek Private',
+
+      'Big Top Battle':'Big Top Battle', 
+      'Big Top Battle Private Game':'Big Top Battle', 
+
+
+      'The Secret of Station House No. 4':'The Secret of Station House No. 4', 
+      'The Secret of Station House No 4(Private Booking)':'The Secret of Station House No. 4',
+
+      "The Dragon's Song":"The Dragon's Song", 
+      "The Dragon's Song Private":"The Dragon's Song", 
+      "The Dragon's Song Family Game":"The Dragon's Song"  
+    }
+    if (productName in self.game_names):
+        return self.game_names[productName]
+    else: 
+      #print(productName)
+      return productName
   
+  
+    
+#__________________________________________________LOADING__________________________________________________
+  def load_data(self, data_dict):
+    """
+      Takes dictionary of table name and dataframe
+    """
+    for data in data_dict:
+      print(f'Loading {data}')
+      self.__load_df( data_dict[data],data)
+
+                                          
+    
+  def __load_df(self, df, table_name):
+    """
+      Function for loading in data. It loads in data from the dataframe row by row.
+      If an error is encountered, it simply ignores that row. It will print an update
+      every 200 rows.
+    """
+    error_count = 0
+    load_count = 0
+    for i in range(len(df)):
+      try:
+        df.iloc[i:i+1].to_sql(table_name, self.engine, if_exists='append' ,index=False)
+      except Exception as e: 
+        #print(e)
+        error_count+=1     
+      else:
+        load_count+=1
+      if((load_count+error_count)%50 ==0):
+        print(f'Loaded {load_count} / {df.shape[0]} entries')
+        print(f'Encountered {error_count} errors')      
+    print(f'Loaded {load_count} / {df.shape[0]} entries')
+    print(f'Encountered {error_count} errors')
+    
+    
