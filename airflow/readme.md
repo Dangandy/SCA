@@ -18,3 +18,13 @@
     - Transform Extract
       - pull data from XCOM
     - Load Data into PostgresQL
+
+---
+
+FAQ:
+
+Permissions 0644 for '1000mlproduction.pem' are too open.
+> Set the permissions with `chmod 400 filename.pem`
+
+Connection closed by port 22
+> make sure you have the username of the server in the IP name `ssh -i "filename" ubuntu@...`
