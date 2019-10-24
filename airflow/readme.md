@@ -35,3 +35,6 @@ Can't find `pip3`
 sudo apt-get update
 sudo apt install python3-pip
 ```
+
+`airflow: Command not found` after pip3 install
+> you need to source the profile `source ~/.profile`
