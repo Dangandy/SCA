@@ -33,4 +33,5 @@ Can't find `pip3`
 > you need to update your package manager (apt for ubuntu):
 ```bash 
 sudo apt-get update
-sudo apt install python3-pip```
+sudo apt install python3-pip
+```
