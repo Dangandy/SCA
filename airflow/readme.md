@@ -28,3 +28,9 @@ Permissions 0644 for '1000mlproduction.pem' are too open.
 
 Connection closed by port 22
 > make sure you have the username of the server in the IP name `ssh -i "filename" ubuntu@...`
+
+Can't find `pip3`
+> you need to update your package manager (apt for ubuntu):
+```bash 
+sudo apt-get update
+sudo apt install python3-pip```
