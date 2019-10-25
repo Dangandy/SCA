@@ -17,8 +17,13 @@
       - push data into XCOM
     - Transform Extract
       - pull data from XCOM
-    - Load Data into PostgresQL
-
+      
+3. Install the following libraries for postgres
+```bash
+sudo apt-get install postgresql
+sudo apt-get install python3-psycopg2
+sudo apt-get install libpq-dev
+```
 ---
 
 FAQ:
