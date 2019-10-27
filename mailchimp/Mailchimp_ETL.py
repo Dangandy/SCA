@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 import flat_table
 from mailchimp3 import MailChimp
 
-#Create the class for Bookeo scrapper
+#Create the class for MailChimp scrapper
 
 class MailChimp_ETL():
   """An instance of this class sets up the connection to the Mailchimp API and 
@@ -20,12 +20,12 @@ class MailChimp_ETL():
     """Instantiate the class and create internal attributes"""
     
     # Credentials
-    mc_user= username
-    mc_api= api
+    mc_user='companyandcompany'
+    mc_api='1e521b1b26c6849cc2d41188891f7fd5-us3'
     self.client = MailChimp(mc_api=mc_api, mc_user=mc_user)
     
     
-    self.db_url = databaseurl
+    self.db_url = 'postgresql://postgres:psql1234@sca-db.cvz6xur1mv50.us-east-2.rds.amazonaws.com:5432/sca_data'
     self.engine = create_engine(self.db_url)
   
     self.extracted_data = {}
@@ -332,8 +332,10 @@ class MailChimp_ETL():
     col_list_df   = ['list_id', 'list_name', 'email_id']
     list_df  = df[col_list_df]
     
+    
     ## (b) Drop the list attributes from users_df
-    users_df = df.drop(columns = ['list_id', 'list_name'])
+    col_users_df   = ['email', 'email_id', 'first_name', 'last_name', 'status']
+    users_df = df[col_users_df]
     
     
     return [list_df, users_df] 
@@ -405,6 +407,8 @@ class MailChimp_ETL():
           print(f'Encountered {error_count} errors')   
       print(f'Loaded {load_count} / {_transformed_data.shape[0]} entries')
       print(f'Encountered {error_count} errors')
+  
+
  
  
  
@@ -415,6 +419,8 @@ extracted_data = scrapper.extract_data()
 #transform
 transformed_data = scrapper.transform_data(extracted_data)
 #load
-scrapper.load_data(transformed_data)
+#load campaigns and users first
+scrapper.load_data(transformed_data,['campaigns','users'])
+scrapper.load_data(transformed_data,['lists','clicks','opens'])
 
 
