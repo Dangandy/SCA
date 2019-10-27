@@ -20,12 +20,12 @@ class MailChimp_ETL():
     """Instantiate the class and create internal attributes"""
     
     # Credentials
-    mc_user='companyandcompany'
-    mc_api='1e521b1b26c6849cc2d41188891f7fd5-us3'
+    mc_user= 
+    mc_api=
     self.client = MailChimp(mc_api=mc_api, mc_user=mc_user)
     
     
-    self.db_url = 'postgresql://postgres:psql1234@sca-db.cvz6xur1mv50.us-east-2.rds.amazonaws.com:5432/sca_data'
+    self.db_url = 
     self.engine = create_engine(self.db_url)
   
     self.extracted_data = {}
