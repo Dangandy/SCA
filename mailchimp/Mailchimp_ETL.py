@@ -31,14 +31,28 @@ class MailChimp_ETL():
     self.extracted_data = {}
     self.extracted_data_df = {}
     self.transformed_data = {}
-       
-  def __str__(self):
+    
+    
+      def __str__(self):
     return 'This is a template for the MailChimp ETL class' 
   
 
 #====================================================Extraction functions====================================================       
   def extract_data(self, data_list = None): 
-    #dictionary of functions for extaction
+    '''
+      Function for extracting data from Mail Chimp. Input a list of tables
+      to be extracted. If no tables are specified, extract all tables.
+      
+      Outputs a dictionary with the table name as the key. Also saves it to 
+      attribute self.extracted_data
+      Example output: {'users': extracted_users_data}
+      
+      Tables are: campaigns, users, opens, clicks
+      
+      Campaigns will always be extracted, as it is needed to extract the other tables
+    '''
+    
+    #dictionary of functions to extract each table
     self.extract_func = {
         'campaigns': self.__extract_campaigns,
         'users': self.__extract_users,
@@ -46,11 +60,11 @@ class MailChimp_ETL():
         'clicks': self.__extract_clicks
     }    
     
-    
+    #if the tables to be extracted is not specified, extract all tables
     if(data_list==None):
       data_list = list(self.extract_func.keys())
       
-    #campaigns will always be extracted
+    #campaigns needs to be extracted first to extract the rest
     data_list.append('campaigns')
     data_list = list(set(data_list))
     data_list.remove('campaigns')
@@ -74,6 +88,7 @@ class MailChimp_ETL():
     #extract each item in the extract list
     for data in extract_list:
       print(f'Extracting {data}...')
+      #run the extraction function for each table
       extracted_data[data] = self.extract_func[data]()    
       print(f'Finished extracting {data}')
     self.extracted_data = extracted_data
@@ -233,20 +248,44 @@ class MailChimp_ETL():
     
 #====================================================Transformation functions====================================================       
   def transform_data(self, extracted_data, data_list = None):
+    '''
+      Function for transforming previously extracted data. Input a dict of
+      extracted data with table names for keys (see extract_data above), and a list of tables
+      to be extracted. If no tables are specified, transform all tables.
+
+      Outputs dictionary of table names and transformed data, similar to extracted data.
+      Also saves it to attribute self.transformed_data
+
+      After converting the extracted data into a dataframe, that dataframe is
+      saved in self.extracted_data_df in the same dictionary format. This data
+      can be saved in a csv and loaded into this function inplace of the 
+      extracted data. This is to save on having to extract every time.
+
+      Tables are: campaigns, users, lists, opens, clicks
+
+      Lists and users are both take from the users data. If not specified, 
+      both will be transformed
+    '''
+    #dictionary of functions to transform each table
     self.transform_func = {
-        'campaigns': self.__transform_campaigns,
-        'lists': self.__transform_lists,
-        'users': self.__transform_users,
-        'opens': self.__transform_opens,
-        'clicks': self.__transformt_clicks
+    'campaigns': self.__transform_campaigns,
+    'lists': self.__transform_lists,
+    'users': self.__transform_users,
+    'opens': self.__transform_opens,
+    'clicks': self.__transformt_clicks
     }
+    
+    
+    #if the tables to be transformed is not specified, transform all tables
     if(data_list == None):
       data_list = list(extracted_data.keys())
+      #if users is in the extracted data, add list to the extraction list as well
       if('users' in extracted_data.keys()):
-        data_list.append('lists')
+          data_list.append('lists')
     
+    #remove unique values
     data_list = list(set(data_list))
-    
+    #remove all invalid values
     transform_list = []
     for val in data_list:
       if(val in self.transform_func):
@@ -259,7 +298,7 @@ class MailChimp_ETL():
     #transform the data
     for data in transform_list:
       print(f'Transforming {data}...')
-      #lists has to to be extracted from the users table
+      #if lists is being transformed, set the extracted data to lists
       if(data == 'lists'):
         _extracted_data = extracted_data['users']
       else:
@@ -283,6 +322,8 @@ class MailChimp_ETL():
     df['subject_line'] = df['subject_line'].str.strip()
     df['title'] = df['title'].str.strip()
     
+    col = ['click_rate', 'id', 'open_rate', 'send_time','status', 'subject_line', 'title']
+    df = df[col]
     
     df['click_rate'] = df['click_rate'].astype(float)
     df['open_rate'] = df['open_rate'].astype(float)
@@ -296,7 +337,11 @@ class MailChimp_ETL():
     #status	
     #subject_line	
     #title
+    
+    #id is the primary key. get rid of duplicates
+    df = (df.drop_duplicates(subset='id')).reset_index(drop = True)
     return df
+    
 
   
   #list and user data are both extracted from users
@@ -314,11 +359,13 @@ class MailChimp_ETL():
     #first_name	
     #last_name	
     #status
+    
+    #email_id is the primary key. get rid of duplicates
     df = self.__transform_user_lists(extracted_data)[1]
     df = (df.drop_duplicates(subset='email_id')).reset_index(drop = True)
     return df
 
-  
+  #user and lists are stored in the same extracted data
   def __transform_user_lists(self,extracted_data):
     # 2. Transform users_dict -> df
     df = pd.DataFrame(extracted_data)
@@ -329,13 +376,13 @@ class MailChimp_ETL():
     df['last_name'] = df['last_name'].str.strip()
       
     ## (a) Split off users_df by the list attributes
-    col_list_df   = ['list_id', 'list_name', 'email_id']
-    list_df  = df[col_list_df]
+    col_list   = ['list_id', 'list_name', 'email_id']
+    list_df  = df[col_list]
     
     
     ## (b) Drop the list attributes from users_df
-    col_users_df   = ['email', 'email_id', 'first_name', 'last_name', 'status']
-    users_df = df[col_users_df]
+    col_users   = ['email', 'email_id', 'first_name', 'last_name', 'status']
+    users_df = df[col_users]
     
     
     return [list_df, users_df] 
@@ -347,6 +394,10 @@ class MailChimp_ETL():
     self.extracted_data_df['opens'] = df
     
     df['last_open'] = df['last_open'].apply(lambda x: x['timestamp'])
+    
+    
+    col = ['campaign_id', 'email_id', 'last_open', 'opens', 'opens_count']
+    df = df[col]
     
     df['last_open'] = pd.to_datetime(df['last_open'])
     #df['opens'] = pd.to_datetime(df['opens'])
@@ -367,8 +418,11 @@ class MailChimp_ETL():
     self.extracted_data_df['clicks'] = df
     
     ## Strip leading/treading whitespaces
-    df['url'] = df['url'].str.strip()
     
+    col = ['campaign_id', 'clicks', 'email_id', 'list_id', 'url',	'url_id']
+    df = df[col]
+    
+    df['url'] = df['url'].str.strip()  
     df['clicks'] = df['clicks'].astype(int)
 
     
@@ -385,42 +439,44 @@ class MailChimp_ETL():
 
 #====================================================Loading functions======================================================  
   def load_data(self, transformed_data, data_list= None):
+    '''
+      Function for loading transformed data. Input a dict of transformed data 
+      with table names for keys (see extract_data above), and a list of tables
+      to be loaded. If no tables are specified, load all tables.
+        
+      Data is loaded row by row. This is so that loading doesn't all fail should
+      an error occur. A progress report is given every 50 rows.
+      
+      Make sure to load campaigns and users first, as there are foreign key dependencies.
+      I didn't have time to make this an automatic feature so you have to do it yourself.
+
+      Tables are: campaigns, users, lists, opens, clicks
+    '''
+    
+    #if the tables to be loaded is not specified, load all data in the input
     if(data_list == None):
       data_list = transformed_data.keys()
     
+    #load the data by table
     for data in data_list:
       print(f'Loading: {data}...')
+      #variables to keep track of rows loaded and errors encountered
       error_count = 0
       load_count = 0
       _transformed_data = transformed_data[data]
+      #data is loaded row by row
       for i in range(len(_transformed_data)):
         try:
           _transformed_data.iloc[i:i+1].to_sql(data, self.engine, if_exists='append')
         except Exception as e: 
-          print(e)
+          print(e) 
           error_count+=1
           pass 
         else:
           load_count+=1
+        #give a progress update every 50 rows. feel free to change this number
         if((load_count+error_count)%50 ==0):
           print(f'Loaded {load_count} / {_transformed_data.shape[0]} entries')
           print(f'Encountered {error_count} errors')   
       print(f'Loaded {load_count} / {_transformed_data.shape[0]} entries')
       print(f'Encountered {error_count} errors')
-  
-
- 
- 
- 
-#code to extract, transform and load all data
-scrapper = MailChimp_ETL()
-#extract
-extracted_data = scrapper.extract_data()
-#transform
-transformed_data = scrapper.transform_data(extracted_data)
-#load
-#load campaigns and users first
-scrapper.load_data(transformed_data,['campaigns','users'])
-scrapper.load_data(transformed_data,['lists','clicks','opens'])
-
-
