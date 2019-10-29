@@ -77,7 +77,10 @@ class MailChimp_ETL():
       else:
         print(f'{val} is not an extractable object')
     
+    
+    print('Extracting...')
     extracted_data = {}
+    
     
     #extract campaigns first
     print(f'Extracting campaigns...')
@@ -91,6 +94,8 @@ class MailChimp_ETL():
       #run the extraction function for each table
       extracted_data[data] = self.extract_func[data]()    
       print(f'Finished extracting {data}')
+    print('Finished extracting...')
+    
     self.extracted_data = extracted_data
     return extracted_data
        
@@ -296,6 +301,7 @@ class MailChimp_ETL():
     transformed_data = {}
         
     #transform the data
+    print('Transforming..')
     for data in transform_list:
       print(f'Transforming {data}...')
       #if lists is being transformed, set the extracted data to lists
@@ -305,9 +311,8 @@ class MailChimp_ETL():
         _extracted_data = extracted_data[data]
       transformed_data[data] = self.transform_func[data](_extracted_data)    
       print(f'Finished transforming {data}')
-
-    print('Transforming..')
-
+    print('Finished transforming')
+      
     self.transformed_data = transformed_data
     return transformed_data 
   
@@ -393,14 +398,14 @@ class MailChimp_ETL():
     df = pd.DataFrame(extracted_data)
     self.extracted_data_df['opens'] = df
     
-    df['last_open'] = df['last_open'].apply(lambda x: x['timestamp'])
+#    df['last_open'] = df['last_open'].apply(lambda x: x['timestamp'])
     
     
     col = ['campaign_id', 'email_id', 'last_open', 'opens', 'opens_count']
     df = df[col]
     
     df['last_open'] = pd.to_datetime(df['last_open'])
-    #df['opens'] = pd.to_datetime(df['opens'])
+    df['opens'] = df['opens'].astype(str)
     df['opens_count'] = df['opens_count'].astype(int)
 
     #columns:
@@ -467,7 +472,7 @@ class MailChimp_ETL():
       #data is loaded row by row
       for i in range(len(_transformed_data)):
         try:
-          _transformed_data.iloc[i:i+1].to_sql(data, self.engine, if_exists='append')
+          _transformed_data.iloc[i:i+1].to_sql(data, self.engine, if_exists='append', index = False)
         except Exception as e: 
           print(e) 
           error_count+=1
@@ -480,3 +485,12 @@ class MailChimp_ETL():
           print(f'Encountered {error_count} errors')   
       print(f'Loaded {load_count} / {_transformed_data.shape[0]} entries')
       print(f'Encountered {error_count} errors')
+      
+      
+      #Main Function
+      scrapper = MailChimp_ETL()
+      extracted_data = scrapper.extract_data()
+      transformed_data = scrapper.transform_data(extracted_data)
+      scrapper.load_data(transformed_data, ['campaigns','users'])
+      scrapper.load_data(transformed_data, ['lists','opens','clicks'])
+
