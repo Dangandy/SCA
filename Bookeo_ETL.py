@@ -16,32 +16,36 @@ import sqlalchemy as db
 import flat_table
 
 #Create the class for Bookeo scrapper
-
 class Bookeo_ETL():
   """An instance of this class sets up the connection to the Bookeo API and 
   retrieves the data in a json format to then transform it into a pandas dataframe
   and load it into a SQL database"""
   
-  def __init__(self, location):
+  def __init__(self):
     """Instantiate the class and create internal attributes"""
     
     # Credentials
     #MAKE SURE TO REMOVE THESE WHEN UPLOADING TO A PUBLIC SITE
-    self.secretKey = 'nRhykUJ5mIQQLSyMOfswBYMvfPetLL3v'
-    self.apikeys = {'casa_loma': 'AAWNLWW6WEMLRTNTUCJ3T41551RCE94P14F1F8479C2', 'black_creek': 'ARJKX9MATEMLRTNTUCJ3T3152XELJPJ1456D150190'}
-    self.apiKey = self.apikeys[location]
-    self.location = location
+    self.secretKey = secret key
+    self.apikeys = {'casa_loma': casa loma api key, 
+                    'black_creek': black creek api key}
     
-    self.db_url = 'postgresql://postgres:psql1234@sca-db.cvz6xur1mv50.us-east-2.rds.amazonaws.com:5432/sca_data'
+    
+    self.db_url = database url
     self.engine = db.create_engine(self.db_url)
     
-
+    self.raw_data = {}
+    self.raw_data_df = {}
+    self.transformed_data = {}
+    
   def __str__(self):
-    return f'This is a template for the Bookeo ETL class for {self.location}'
+    return f'This is a template for the Bookeo ETL class'
 
   
   
-#__________________________________________________EXTRACTING__________________________________________________  
+#=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=EXTRACTING=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+  
+    
   def extract_data(self, startTime = None, endTime = datetime.datetime.now(), fromStartOfMonth=True):
     """This method handles and instantiates the connection to the API in order to send 
     and receive requests. After the connection is created, it applies a predefined
@@ -53,7 +57,8 @@ class Bookeo_ETL():
     
     `endTime` is the date end the extraction. By default it is the current date.
     
-    `fromStartOfMonth` determines whether extraction starts on the exact date of 
+    `fromStartOfMonth` determines whether extraction starts on the exact date or the 1st of the month
+    
     `startTime` the 1st of the month of `startTime` 
 
     Pseudocode:
@@ -62,29 +67,44 @@ class Bookeo_ETL():
         3. Add data to the list
     """
     
+    self.raw_data = {}
+    #extract data for each location that has an api key
+    for location in self.apikeys:
+      self.raw_data[location] = self.__extract_data(location, startTime, endTime, fromStartOfMonth)
+    return self.raw_data
+  
+  def __extract_data(self, location, startTime = None, endTime = datetime.datetime.now(), fromStartOfMonth=True):
+    """
+      Determines the starting and ending times based on inputs, and extracts data month by month
+      
+      Inputs are the same as extract_data
+    """
+    self.apiKey = self.apikeys[location]
+    
     #If the start time is not specified, query the database for the last updated time
     if(startTime == None):
       connection = self.engine.connect()
       metadata = db.MetaData()
       try:
+        #query the database for the last updated time
         booking_table = db.Table('booking', metadata, autoload=True, autoload_with=self.engine)
-        query = db.select([booking_table.columns.creationTime]).order_by(db.desc(booking_table.columns.creationTime))
+        query = db.select([booking_table.columns.creationtime]).order_by(db.desc(booking_table.columns.creationtime))
         
-      #If a last updated time cannot be found, likely due to the table not existing, extract all data starting Jan 01 2017
-      except:
+      #if a last updated time cannot be found, likely due to the data not existing, extract all data starting Jan 01 2017
+      except Exception as e:
+        print(e)
         startTime = datetime.datetime(2017, 1, 1)
         print(f'Table not found, extracting all data starting: {startTime}')
       else:
+        #set the start time to the resulting time
         ResultProxy = connection.execute(query)
         ResultSet = ResultProxy.fetchone()
         time = ResultSet.values()[0]
         print(f'Last updated: {time}')
-        time = time.rsplit('-',1)[0]
-        startTime = dt.strptime(time, '%Y-%m-%dT%H:%M:%S')
+        startTime = time
              
-    #Set the starting time to the start of the month
     if(fromStartOfMonth==True):
-      # variables
+      #set the starting time to the start of the month
       current_month = startTime.month
       current_year = startTime.year
       startTime = datetime.datetime(current_year, current_month, 1)
@@ -92,23 +112,23 @@ class Bookeo_ETL():
     print(f'Preparing to extract data from {startTime} to {endTime}')
 
     print('Extracting')    
+    
     json_data = []
     # loop through all months
     currentTime = startTime
     while currentTime <= endTime:
-        
+        #pull one month of data and append it to the list
         _json_data = self.__get_one_month_bookings(currentTime, endTime)
         json_data += _json_data
+        #increment by one month
         currentTime = currentTime + relativedelta(months=1)
-        
-    
+            
     print(f'Extracted {len(json_data)} rows')
     return  json_data
     
   
   def __get_one_month_bookings(self, startTime, endTime):
     """
-        int, int -> json
         Get One month or until endTime of booking information from Bookeo
         Note: Bookeo only allows fetches of 31 days
     """
@@ -126,6 +146,7 @@ class Bookeo_ETL():
     print(f'Extracting data from {startTime} to {endTimeMonth}')
     
     # call GET request
+    # this grabs up to 100 rows at a time
     url = f'https://api.bookeo.com/v2/bookings?secretKey={self.secretKey}&apiKey={self.apiKey}&lastUpdatedStartTime={startTime}&lastUpdatedEndTime={endTimeMonth}&itemsPerPage=100&expandParticipants=true&expandCustomer=true&includeCanceled=true'
     currentPage, totalPages, pageNavigationToken, json_data = self.__get_request(url)
     
@@ -136,8 +157,7 @@ class Bookeo_ETL():
         json_data += _json_data
     return json_data  
 
-
-    
+  
   def __get_request(self, url):
     """
     Private method to be used within the extract_data method in order to get 
@@ -183,22 +203,64 @@ class Bookeo_ETL():
       
 
       
-#_________________________TRANSFORMING__________________________________________________  
-  def transform_data(self, current_bookings):
+#=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=TRANSFORMATION=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= 
+      
+  def __to_dataframe(self, raw_data):
+    '''
+      Converts the json raw data into a dataframe
+    '''
+    # Flatten json object
+    df = pd.DataFrame(raw_data)
+    
+    #if the df is empty
+    if(df.size == 0):
+      return pd.DataFrame()
+    df = flat_table.normalize(df)
+    return df
+  
+  def transform_data(self, raw_data):
     """Transforms the loaded json dump into a dataframe with all the information ready to
     be sent into the SQL database
 
     Pseudocode:
-    1. Put current_bookings into dataframe (df) and flatten json entries
-    2. Assign Internal id based on SCA customer id (no longer in use)
-    3. Cleaning transformations
-    4. Split df into customer_df and booking_df
+    1. Put raw_data into dataframe (df) and flatten json entries
+    2. Cleaning transformations
+      a. Change number and time formats
+      b. Seperate extensions and remove non numerical values from phone numbers
+      c. 
+      d. 
+      e. 
+    3. Split df into customer_df and booking_df
+    4. Retrieve utilization table from information
     """
     print('Transforming data')
     
+    print('Merging data')
+
+    #Assign the raw data to attributes
+    casa_df = self.__to_dataframe(raw_data['casa_loma'])
+    black_df = self.__to_dataframe(raw_data['black_creek'])
+
+    #assign the location column
+    self.raw_data_df['casa_loma'] = casa_df
+    casa_df['location'] = 'Casa Loma'
+    self.raw_data_df['black_creek'] = casa_df
+    black_df['location'] = 'Black Creek'
+    
+    #merge the dataframes
+    df = pd.DataFrame()
+    df = df.append(casa_df)
+    df = df.append(black_df)
+    
+    
+    #remove duplicate bookings
+    df = (df.drop_duplicates(subset='bookingNumber')).reset_index(drop = True)  
+    df = (df.drop_duplicates(subset='customer.id')).reset_index(drop = True)   
+    
+    #these names are the names of columns in the json file. they will be renamed later
     # Set customer columns
     customer_col = [
-                #'IID',
+                'customer.emailAddress',
                 'customer.streetAddress.countryCode',
                 'customer.startTimeOfPreviousBooking',
                 'customer.startTimeOfNextBooking',
@@ -211,19 +273,18 @@ class Bookeo_ETL():
                 'customer.gender',
                 'customer.firstName',
                 'customer.facebookId',
-                'customer.emailAddress',
                 'customer.credit.currency',
                 'customer.credit.amount',
                 'customer.creationTime',
                 'customer.acceptSmsReminders',
                 'customer.phoneNumbers.type',
                 'customer.phoneNumbers.number',
-                'customer.phoneNumbers.ext'
+                'customer.phoneNumbers.ext',
+                'repeat_purchases'
                 ]
     # Set bookings column 
     # Note: One set of taxes column were drop since it was redundant
     booking_col = [
-                #'IID',
                 'accepted',
                 'customer.emailAddress',
                 'bookingNumber',
@@ -242,9 +303,14 @@ class Bookeo_ETL():
                 'productName',
                 'promotionName',
                 'participants.numbers.number',
+                'max_capacity',
                 'sourceIp',
                 'location',
                 'startTime',
+                'start_month',
+                'start_year',
+                'start_quarter',
+                'start_weekend',
                 'title',
                 'options.value',
                 'options.name',
@@ -257,39 +323,9 @@ class Bookeo_ETL():
                 'price.totalNet.amount',
                 'price.totalGross.currency',
                 'price.totalGross.amount',
-                'corporateBooking'
-                ]  
-    
-    
-    # Flatten json object
-    df = pd.DataFrame(current_bookings)
-    
-    #if the df is empty
-    if(df.size == 0):
-      bookings_df = pd.DataFrame(columns = booking_col)
-      customer_df = pd.DataFrame(columns = booking_col)
-      self.customer_df = customer_df
-      self.bookings_df = bookings_df
-      return
-    
-    df = flat_table.normalize(df)
-
-    # Assign location 
-    df['location'] = self.location
-
-    # Grab all unique id, no longer in use 
-    #customer_id = (df['customerId'].unique()).tolist()
-    # Internal id dictionary
-    # TODO: We might need to export this?
-    #IID = {}
-    #k   = 1
-    #for identity in customer_id:
-    #  IID[identity] = k
-    #  k = k + 1    
-    # Map IID to each booking data
-    # df['IID'] = df['customerId'].apply(lambda x: IID[x])
-
-
+                'corporate_booking'
+                ]      
+                
     # Cleaning
     #if a column is not in the df, assign a null column to it
     for col in booking_col:
@@ -299,73 +335,96 @@ class Bookeo_ETL():
       if(col not in df.columns):
         df[col]= np.nan   
     
+
     print('Cleaning')
-    
-    #change number formats to numbers
+    #rename column names
+    #replace all . with _
+    df.columns = df.columns.str.replace('.', '_')
+    customer_col = [col.replace('.', '_') for col in customer_col]
+    booking_col = [col.replace('.', '_') for col in booking_col]
+    #change all names to lower case
+    df.columns = df.columns.str.lower()
+    customer_col = [col.lower() for col in customer_col]
+    booking_col = [col.lower() for col in booking_col]
+
+    #change number and date formats   
     num_col = [
-        'customer.numNoShows','customer.numCancelations','customer.numBookings'     
+        'customer_numnoshows','customer_numcancelations','customer_numbookings'     
     ]
-    
-    price_col = ['price.totalTaxes.amount','price.totalPaid.amount','price.totalNet.amount','price.totalGross.amount']
+    price_col = ['price_totaltaxes_amount','price_totalpaid_amount','price_totalnet_amount','price_totalgross_amount']
     
     date_col = [
-       'customer.startTimeOfPreviousBooking','customer.startTimeOfNextBooking','customer.creationTime',       
-        'cancelationTime','creationTime','endTime','lastChangeTime','startTime'
+       'customer_starttimeofpreviousbooking', 'customer_starttimeofnextbooking', 'customer_creationtime',       
+        'cancelationtime', 'creationtime', 'endtime', 'lastchangetime', 'starttime'
     ]
     df[date_col] = df[date_col].apply(self.__to_datetime)
-    df[num_col] = df[num_col].astype(int)
-    df[price_col] = df[price_col].astype(float)
+    df[num_col] = df[num_col].astype(float)
+    df[price_col] = df[price_col].astype(float)    
     
-    
-    
-    print('Seperating phone extensions')
     #seperate extensions and move them to their own column
-    df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.number']     
-    df['customer.phoneNumbers.number'] = df['customer.phoneNumbers.number'].apply(self.__number)
-    df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.ext'].apply(self.__ext)
+    print('Seperating phone extensions')
+    df['customer_phonenumbers_number'] = df['customer_phonenumbers_number'].apply(self.__number)
+    df['customer_phonenumbers_ext'] = df['customer_phonenumbers_ext'].apply(self.__ext)
     
     # remove non numerical characters
-    df['customer.phoneNumbers.number'] = df['customer.phoneNumbers.number'].apply(self.__remove_char)
-    df['customer.phoneNumbers.ext'] = df['customer.phoneNumbers.ext'].apply(self.__remove_char)
-    
+    df['customer_phonenumbers_number'] = df['customer_phonenumbers_number'].apply(self.__remove_char)
+    df['customer_phonenumbers_ext'] = df['customer_phonenumbers_ext'].apply(self.__remove_char)
     
     
     print('Cleaning product names')
     # Remove the trailing whitespace from game names
-    df['productName'] = df['productName'].str.rstrip()
-    
+    df['productname'] = df['productname'].str.rstrip()
     #change privateEvent column to true for private games
-    private_bookings = df[df['productName'].str.contains('Private')]
-    df.loc[private_bookings.index, 'privateEvent']= True
+    private_bookings = df[df['productname'].str.contains('Private', flags = re.IGNORECASE)]
+    df.loc[private_bookings.index, 'privateevent']= True
     
+    #get max capacity and clean up the product names
+    df['max_capacity'] = df['productname'].apply(self.__get_max_cap)
+    df['productname'] = df['productname'].apply(self.__clean_game_name) 
+    df['max_capacity'] = df['productname'].apply(self.__get_max_cap)
     
     #add the corporate booking column
+    print('Identifying corporate bookings')
     corporate_list = []
     for index, row in df.iterrows():
       corporate_list.append(self.__is_corp(row))                                         
-    df['corporateBooking'] = corporate_list
+    df['corporate_booking'] = corporate_list
+     
     
-    df['productName'] = df['productName'].apply(self.__clean_game_name)  
-    
+    #add columns for the month, year, quarter, and whether it's a weekday for start time
+    df['start_month'] = df['starttime'].dt.month
+    df['start_year'] = df['starttime'].dt.year
+    df['start_quarter'] = df['starttime'].dt.quarter
+    df['start_weekend'] = df['starttime'].dt.weekday>4
     
     # Split data into customer and bookings
     customer_df = df[customer_col]
     bookings_df = df[booking_col]
 
-    # Eliminate duplicates in customer_df based on IID
-    customer_df = (customer_df.drop_duplicates(subset='customer.id')).reset_index(drop = True)
-    customer_df = (customer_df.drop_duplicates(subset='customer.emailAddress')).reset_index(drop = True)
-    bookings_df = (bookings_df.drop_duplicates(subset='bookingNumber')).reset_index(drop = True)
+    #add column for how many times a customer has made a purchase
+    repeat_purchases = bookings_df['customer_emailaddress'].value_counts().reset_index()
+    repeat_dict = repeat_purchases.set_index('index').to_dict()['customer_emailaddress']
+    customer_df['repeat_purchases'] = customer_df['customer_emailaddress']
+    customer_df.replace({'repeat_purchases':repeat_dict}, inplace=True)
+        
+    # Eliminate duplicates in customer_df based on email
+    customer_df = (customer_df.drop_duplicates(subset='customer_emailaddress')).reset_index(drop = True)
     
-    customer_df = customer_df.sort_values('customer.creationTime')
-    bookings_df = bookings_df.sort_values('creationTime')
+    #drop customers with null emails
+    customer_df.drop(customer_df[customer_df['customer_emailaddress'].isna()].index, inplace = True)
+
+    #order by creation date
+    customer_df = customer_df.sort_values('customer_creationtime')
+    bookings_df = bookings_df.sort_values('creationtime')
     
-    #Format column names
-    customer_df.columns = customer_df.columns.str.replace('.', '_')
-    bookings_df.columns = bookings_df.columns.str.replace('.', '_')
+    #generate utilization table
+    monthly_capacity_df = pd.DataFrame(self.__get_utilization(bookings_df))
+    
+    transformed_data = {'customer':customer_df, 'booking':bookings_df, 'utilization':monthly_capacity_df}
+    self.transformed_data = transformed_data
     
     print('Finished transforming')
-    return {'customer':customer_df, 'booking':bookings_df}
+    return transformed_data
     
     
 
@@ -405,12 +464,36 @@ class Bookeo_ETL():
       numbers.append(np.nan)
     return str(numbers[1])  
   
+  
+  
+  #get the max capacity of a game
+  def __get_max_cap(self, game):
+    #max capacities for each game
+    self.capacities = {
+        'King of the Bootleggers':16, 'King Of The Bootleggers':16, 'Bootleggers Private':16,
+        'Escape from the Tower':12, 'Tower Private Game':12, 
+        'Station M':12, 'Station M Private Game':12,
+        'Where Dark Things Dwell':60,
+        'Murdoch Mysteries Escape Game':12, 'Murdoch Mysteries Private Game':12,
+        'Escape from the Time Travel Lab':11, 'TTL (Private Booking)':11, 
+        'The Trial of the Mad Fox Society':11, 'MadFox (Private Booking)':11,
+        'Black Creek (Private 30 people)':30, 'Black Creek (Private 60 People)':60,
+        'Big Top Battle':120, 'Big Top Battle Private Game':120, 
+        'The Secret of Station House No. 4':12, 'The Secret of Station House No 4(Private Booking)':12,
+        "The Dragon's Song":12, "The Dragon's Song Private":12, "The Dragon's Song Family Game":12   
+    }
+    if(game in self.capacities):
+      return self.capacities[game]
+    else:
+      return np.nan
+    
+  
   #check if a email is corporate 
   def __is_corp_email(self, email):
     '''
     Check if an email is corporate by checking if it is in a given list of providers
     '''   
-    #list of public emails
+    #list of common public emails
     self.emailList = [
       'gmail.com', 'yahoo.com', 'hotmail.com', 'aol.com', 'hotmail.co.uk',
       'hotmail.fr', 'msn.com', 'yahoo.fr', 'wanadoo.fr', 'orange.fr',
@@ -443,37 +526,21 @@ class Bookeo_ETL():
     return True    
 
   #check if a booking is corporate
-  def __is_corp(self, booking):
-    #max capacities for each game
-    self.capacities = {
-        'King of the Bootleggers':16, 'Bootleggers Private':16,
-        'Escape from the Tower':12, 'Tower Private Game':12, 
-        'Station M':12, 'Station M Private Game':12,
-        'Where Dark Things Dwell':60,
-        'Murdoch Mysteries Escape Game':12, 'Murdoch Mysteries Private Game':12,
-        'Escape from the Time Travel Lab':11, 'TTL (Private Booking)':11, 
-        'The Trial of the Mad Fox Society':11, 'MadFox (Private Booking)':11,
-        'Black Creek (Private 30 people)':30, 'Black Creek (Private 60 People)':60,
-        'Big Top Battle':120, 'Big Top Battle Private Game':120, 
-        'The Secret of Station House No. 4':12, 'The Secret of Station House No 4(Private Booking)':12,
-        "The Dragon's Song":12, "The Dragon's Song Private":12, "The Dragon's Song Family Game":12   
-    }
-    
+  def __is_corp(self, booking):    
     '''See if a booking is corporate'''
     score = 0
     #1) possess corporate email 
-    if(self.__is_corp_email(booking['customer.emailAddress'])):
+    if(self.__is_corp_email(booking['customer_emailaddress'])):
       score+=1
     #2) possess corporate phone number (ext)
-    if(pd.isna(booking['customer.phoneNumbers.ext']) == False):
+    if(pd.isna(booking['customer_phonenumbers_ext']) == False):
       score+=1
     #3) full booking
     #max capacity for each game
-    if(booking['participants.numbers.number'] in self.capacities):
-      if(booking['participants.numbers.number'] >= self.capacities[booking['productName']]):
+    if(booking['participants_numbers_number'] >= booking['max_capacity']):
         score+=1
     #4) private event
-    if(booking['privateEvent']==True):
+    if(booking['privateevent']==True):
       score+=1
     return score>=3
   
@@ -521,8 +588,57 @@ class Bookeo_ETL():
       #print(productName)
       return productName
   
-  
-    
+  # Function for obtaining utilization dataframe
+  def __get_utilization(self, booking_data):
+
+    #Cut the dataframe until last month
+    booking_data = booking_data[booking_data.starttime < datetime.datetime(datetime.datetime.today().year, datetime.datetime.today().month+1, 1,0,0,0)] #, tzinfo=pytz.FixedOffset(0))]
+    booking_data = booking_data[booking_data.starttime >= datetime.datetime(2017, 11, 1,0,0,0)] #, tzinfo=pytz.FixedOffset(0))]
+
+    #Check if it's a weekend ==1
+    booking_data['weekend'] = booking_data.starttime.dt.dayofweek.isin([4,5,6])
+    bool_dict = {True:'weekend', False: 'weekday'}
+    booking_data.replace({'weekend':bool_dict}, inplace=True)
+
+    #Create column for year-week
+    booking_data['yearweek'] = booking_data.starttime.dt.strftime('%Y-%V')
+    #Create column for year-month
+    booking_data['yearmonth'] = booking_data.starttime.dt.strftime('%Y-%m')
+    #Create a column for show ID
+    booking_data['showID'] = booking_data.productname + booking_data.starttime.dt.strftime('%Y%m%d%H%M')
+
+    #display(booking_data)
+
+    #Set up the dataframe by show
+    capacity_df = booking_data.groupby(['yearmonth', 'showID', 'weekend', 'productname']).aggregate({'participants_numbers_number':'sum', 'max_capacity':'max'}).reset_index()
+    #display(capacity_df)
+
+    #Calculate the monthly capacity
+    monthly_capacity = capacity_df.groupby(['yearmonth', 'weekend', 'productname']).aggregate({'participants_numbers_number': 'sum', 'max_capacity': 'sum'}).reset_index()
+
+
+    monthly_capacity.max_capacity.replace(to_replace=0,value=monthly_capacity.participants_numbers_number.astype(int), inplace=True)
+    monthly_capacity = monthly_capacity.groupby(['yearmonth', 'weekend']).aggregate({'max_capacity':'sum','participants_numbers_number': 'sum'}).reset_index()
+
+    monthly_capacity['yearmonth'] = pd.to_datetime(monthly_capacity['yearmonth'],format  = '%Y-%m')
+
+    #Calculate utilization and append to dataframe
+    monthly_capacity['utilization'] = round(monthly_capacity.participants_numbers_number/monthly_capacity.max_capacity, 2)
+
+    monthly_capacity = monthly_capacity[['yearmonth', 'weekend', 'utilization']]
+
+    monthly_capacity = monthly_capacity.pivot_table(index = 'yearmonth', columns = 'weekend')
+    monthly_capacity.columns = monthly_capacity.columns.droplevel(0)
+    monthly_capacity.columns.name = None               
+    monthly_capacity = monthly_capacity.reset_index() 
+
+
+    monthly_capacity['year'] = monthly_capacity['yearmonth'].dt.year
+    monthly_capacity['month'] = monthly_capacity['yearmonth'].dt.month
+
+    #Return only useful data
+    return monthly_capacity[['yearmonth', 'year', 'month', 'weekday', 'weekend']]
+
 #__________________________________________________LOADING__________________________________________________
   def load_data(self, data_dict):
     """
@@ -530,7 +646,7 @@ class Bookeo_ETL():
     """
     for data in data_dict:
       print(f'Loading {data}')
-      self.__load_df( data_dict[data],data)
+      self.__load_df(data_dict[data], data)
 
                                           
     
@@ -550,10 +666,14 @@ class Bookeo_ETL():
         error_count+=1     
       else:
         load_count+=1
-      if((load_count+error_count)%50 ==0):
+      if((load_count+error_count)%100 ==0):
         print(f'Loaded {load_count} / {df.shape[0]} entries')
         print(f'Encountered {error_count} errors')      
     print(f'Loaded {load_count} / {df.shape[0]} entries')
     print(f'Encountered {error_count} errors')
     
-    
+#Main   
+sca_data = Bookeo_ETL()
+raw_data = sca_data.extract_data()
+sca_dfs = sca_data.transform_data(raw_data)
+sca_data.load_data(sca_dfs)
