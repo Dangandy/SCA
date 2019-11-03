@@ -10,7 +10,7 @@
 ## Tools:
 - [Amazon](https://aws.amazon.com/)
   - RDS
-  - Lambda
+  - EC2 with Airflows
 - postgres
 - postman
 - [pgAdmin](https://www.pgadmin.org/download/)
