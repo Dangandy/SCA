@@ -4,8 +4,6 @@ import datetime
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import create_engine
-!pip install mailchimp3
-!pip install flat_table
 import flat_table
 from mailchimp3 import MailChimp
 
@@ -16,24 +14,19 @@ class MailChimp_ETL():
   retrieves the data in a json format to then transform it into a pandas dataframe
   and load it into a SQL database"""
   
-  def __init__(self):
+  def __init__(self, mc_api, mc_user, db_url):
     """Instantiate the class and create internal attributes"""
     
     # Credentials
-    mc_user= 
-    mc_api=
     self.client = MailChimp(mc_api=mc_api, mc_user=mc_user)
-    
-    
-    self.db_url = 
-    self.engine = create_engine(self.db_url)
+    self.engine = create_engine(db_url)
   
     self.extracted_data = {}
     self.extracted_data_df = {}
     self.transformed_data = {}
     
     
-      def __str__(self):
+  def __str__(self):
     return 'This is a template for the MailChimp ETL class' 
   
 
