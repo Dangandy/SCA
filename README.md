@@ -3,7 +3,7 @@
 ---
 
 ## Goal: 
-- use lambda scheduler to periodically (One Month) feed info (Bookeo) into Amazon RDS
+- To create an Extract data from Bookeo and Mailchimp, transform it into a usable DataFrame, and Load it into an AWS RDS instance
 
 ---
 
